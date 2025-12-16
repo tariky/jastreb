@@ -107,35 +107,33 @@ function pushSchema() {
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       woo_id INTEGER NOT NULL,
       connection_id INTEGER REFERENCES woo_connections(id) ON DELETE SET NULL,
-      parent_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
+      product_type TEXT DEFAULT 'simple',
+      parent_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
+      woo_parent_id INTEGER,
       name TEXT NOT NULL,
       slug TEXT,
+      sku TEXT,
       description TEXT,
       short_description TEXT,
-      sku TEXT,
-      price REAL,
-      regular_price REAL,
-      sale_price REAL,
+      price TEXT,
+      regular_price TEXT,
+      sale_price TEXT,
       stock_status TEXT,
       stock_quantity INTEGER,
-      manage_stock INTEGER DEFAULT 0,
-      weight REAL,
-      length REAL,
-      width REAL,
-      height REAL,
-      default_image_url TEXT,
-      default_video_url TEXT,
-      status TEXT DEFAULT 'publish',
-      type TEXT DEFAULT 'simple',
-      created_at INTEGER DEFAULT (unixepoch()),
-      updated_at INTEGER DEFAULT (unixepoch())
+      categories TEXT,
+      tags TEXT,
+      images TEXT,
+      attributes TEXT,
+      variant_attributes TEXT,
+      permalink TEXT,
+      synced_at INTEGER,
+      created_at INTEGER DEFAULT (unixepoch())
     )
   `)
   
   // Create indexes for products
   sqlite.exec(`CREATE INDEX IF NOT EXISTS products_user_idx ON products(user_id)`)
-  sqlite.exec(`CREATE INDEX IF NOT EXISTS products_woo_idx ON products(woo_id)`)
-  sqlite.exec(`CREATE INDEX IF NOT EXISTS products_connection_idx ON products(connection_id)`)
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS products_woo_idx ON products(woo_id, connection_id)`)
   sqlite.exec(`CREATE INDEX IF NOT EXISTS products_parent_idx ON products(parent_id)`)
   
   // Create product_media table
@@ -159,39 +157,50 @@ function pushSchema() {
   
   sqlite.exec(`CREATE INDEX IF NOT EXISTS media_product_idx ON product_media(product_id)`)
   
-  // Create templates table
+  // Create satori_templates table
   sqlite.exec(`
-    CREATE TABLE IF NOT EXISTS templates (
+    CREATE TABLE IF NOT EXISTS satori_templates (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      userId INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       description TEXT,
+      width INTEGER DEFAULT 1200,
+      height INTEGER DEFAULT 630,
       template TEXT NOT NULL,
-      defaultImageUrl TEXT,
-      backgroundColor TEXT,
-      demoProductId INTEGER REFERENCES products(id) ON DELETE SET NULL,
-      createdAt INTEGER DEFAULT (unixepoch()),
-      updatedAt INTEGER DEFAULT (unixepoch())
+      styles TEXT,
+      variables TEXT,
+      preview_url TEXT,
+      is_default INTEGER DEFAULT 0,
+      created_at INTEGER DEFAULT (unixepoch())
     )
   `)
+  
+  // Create product_template_assignments table
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS product_template_assignments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+      template_id INTEGER NOT NULL REFERENCES satori_templates(id) ON DELETE CASCADE,
+      custom_variables TEXT,
+      created_at INTEGER DEFAULT (unixepoch())
+    )
+  `)
+  
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS assignment_product_idx ON product_template_assignments(product_id)`)
   
   // Create template_rules table
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS template_rules (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      templateId INTEGER NOT NULL REFERENCES templates(id) ON DELETE CASCADE,
-      ruleType TEXT NOT NULL,
-      ruleValue TEXT NOT NULL,
-      createdAt INTEGER DEFAULT (unixepoch())
-    )
-  `)
-  
-  // Create template_products table
-  sqlite.exec(`
-    CREATE TABLE IF NOT EXISTS template_products (
-      templateId INTEGER NOT NULL REFERENCES templates(id) ON DELETE CASCADE,
-      productId INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-      PRIMARY KEY (templateId, productId)
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      template_id INTEGER NOT NULL REFERENCES satori_templates(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      description TEXT,
+      priority INTEGER DEFAULT 0,
+      is_active INTEGER DEFAULT 1,
+      conditions TEXT,
+      created_at INTEGER DEFAULT (unixepoch()),
+      updated_at INTEGER DEFAULT (unixepoch())
     )
   `)
   
@@ -199,20 +208,48 @@ function pushSchema() {
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS feeds (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      userId INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       description TEXT,
-      createdAt INTEGER DEFAULT (unixepoch()),
-      updatedAt INTEGER DEFAULT (unixepoch())
+      type TEXT DEFAULT 'facebook_commerce',
+      include_all_products INTEGER DEFAULT 0,
+      filters TEXT,
+      column_mapping TEXT,
+      last_generated_at INTEGER,
+      created_at INTEGER DEFAULT (unixepoch())
     )
   `)
   
   // Create feed_products table
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS feed_products (
-      feedId INTEGER NOT NULL REFERENCES feeds(id) ON DELETE CASCADE,
-      productId INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-      PRIMARY KEY (feedId, productId)
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      feed_id INTEGER NOT NULL REFERENCES feeds(id) ON DELETE CASCADE,
+      product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+      custom_data TEXT,
+      created_at INTEGER DEFAULT (unixepoch())
+    )
+  `)
+  
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS feed_products_feed_idx ON feed_products(feed_id)`)
+  
+  // Create sync_jobs table
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS sync_jobs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      connection_id INTEGER NOT NULL REFERENCES woo_connections(id) ON DELETE CASCADE,
+      status TEXT DEFAULT 'pending',
+      total_products INTEGER DEFAULT 0,
+      processed_products INTEGER DEFAULT 0,
+      created_products INTEGER DEFAULT 0,
+      updated_products INTEGER DEFAULT 0,
+      skipped_products INTEGER DEFAULT 0,
+      only_in_stock INTEGER DEFAULT 0,
+      error_message TEXT,
+      started_at INTEGER,
+      completed_at INTEGER,
+      created_at INTEGER DEFAULT (unixepoch())
     )
   `)
   
@@ -220,12 +257,12 @@ function pushSchema() {
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS ai_chat_sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      userId INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      productId INTEGER REFERENCES products(id) ON DELETE SET NULL,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
       title TEXT,
       status TEXT DEFAULT 'active',
-      createdAt INTEGER DEFAULT (unixepoch()),
-      updatedAt INTEGER DEFAULT (unixepoch())
+      created_at INTEGER DEFAULT (unixepoch()),
+      updated_at INTEGER DEFAULT (unixepoch())
     )
   `)
   
@@ -233,15 +270,17 @@ function pushSchema() {
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS ai_chat_messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      sessionId INTEGER NOT NULL REFERENCES ai_chat_sessions(id) ON DELETE CASCADE,
+      session_id INTEGER NOT NULL REFERENCES ai_chat_sessions(id) ON DELETE CASCADE,
       role TEXT NOT NULL,
       content TEXT,
-      imageUrl TEXT,
-      imageData TEXT,
+      image_url TEXT,
+      image_data TEXT,
       metadata TEXT,
-      createdAt INTEGER DEFAULT (unixepoch())
+      created_at INTEGER DEFAULT (unixepoch())
     )
   `)
+  
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS messages_session_idx ON ai_chat_messages(session_id)`)
   
   // Create generation_jobs table
   sqlite.exec(`
