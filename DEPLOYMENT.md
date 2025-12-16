@@ -106,11 +106,15 @@ openssl rand -base64 32
 
 2. **Initialize database schema**:
 
+   The application will automatically create database tables on first startup if they don't exist. However, for production deployments, it's recommended to initialize the database manually:
+
    ```bash
    bun run db:push
    ```
 
    This creates the SQLite database and applies all schema changes.
+
+   **Note**: If you skip manual initialization, the application will auto-create tables on the first request, but you may see an error in logs until initialization completes.
 
 ### Database Location
 
