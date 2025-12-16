@@ -99,6 +99,7 @@ function GeneratePage() {
   const [editingTitle, setEditingTitle] = useState<string>('')
   const [deletingSessionId, setDeletingSessionId] = useState<number | null>(null)
   const [previewImage, setPreviewImage] = useState<string | null>(null)
+  const [isDragging, setIsDragging] = useState(false)
 
   // Redirect if not authenticated
   useEffect(() => {
@@ -106,6 +107,27 @@ function GeneratePage() {
       navigate({ to: '/auth/login' })
     }
   }, [user, authLoading, navigate])
+
+  // Prevent default drag and drop behavior on the page
+  useEffect(() => {
+    const handleDragOver = (e: DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+    }
+
+    const handleDrop = (e: DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+    }
+
+    document.addEventListener('dragover', handleDragOver)
+    document.addEventListener('drop', handleDrop)
+
+    return () => {
+      document.removeEventListener('dragover', handleDragOver)
+      document.removeEventListener('drop', handleDrop)
+    }
+  }, [])
 
   // Fetch chat sessions
   const { data: sessionsData } = useQuery({
@@ -540,12 +562,15 @@ function GeneratePage() {
     }
   }
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files
-    if (!files) return
-
+  const processFiles = (files: FileList | File[]) => {
     Array.from(files).forEach((file) => {
       if (referenceImages.length >= 14) return
+
+      // Check if it's an image file
+      if (!file.type.startsWith('image/')) {
+        console.warn(`Skipping non-image file: ${file.name}`)
+        return
+      }
 
       const reader = new FileReader()
       reader.onload = (e) => {
@@ -556,8 +581,42 @@ function GeneratePage() {
       }
       reader.readAsDataURL(file)
     })
+  }
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files) return
+
+    processFiles(files)
     e.target.value = ''
+  }
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+
+    const files = e.dataTransfer.files
+    if (files && files.length > 0) {
+      processFiles(files)
+    }
   }
 
   const removeReferenceImage = (index: number) => {
@@ -1071,8 +1130,25 @@ function GeneratePage() {
         )}
 
         {/* Input Area - Always visible at bottom */}
-        <div className="shrink-0 p-4 border-t border-slate-800 bg-slate-900/50 backdrop-blur-sm">
-          <form onSubmit={handleSubmit} className="max-w-4xl mx-auto">
+        <div 
+          className={`shrink-0 p-4 border-t border-slate-800 bg-slate-900/50 backdrop-blur-sm transition-colors relative ${
+            isDragging ? 'bg-indigo-900/50 border-indigo-500/50' : ''
+          }`}
+          onDragEnter={handleDragEnter}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          {isDragging && (
+            <div className="absolute inset-0 bg-indigo-500/10 border-2 border-dashed border-indigo-500 rounded-lg flex items-center justify-center z-50 pointer-events-none m-4">
+              <div className="text-center">
+                <Upload className="h-12 w-12 text-indigo-400 mx-auto mb-2" />
+                <p className="text-indigo-300 font-medium">Drop images here to add as references</p>
+                <p className="text-indigo-400 text-sm mt-1">Up to 14 reference images</p>
+              </div>
+            </div>
+          )}
+          <form onSubmit={handleSubmit} className="max-w-4xl mx-auto relative z-10">
             {/* Settings Row */}
             <div className="flex items-center gap-3 mb-3">
               <div className="flex items-center gap-2">
