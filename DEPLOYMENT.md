@@ -232,7 +232,7 @@ bun run build
 
 #### 3. Run with PM2
 
-Create `ecosystem.config.js`:
+Create `ecosystem.config.cjs`:
 
 ```javascript
 module.exports = {
@@ -262,7 +262,7 @@ Start application:
 
 ```bash
 # Start
-pm2 start ecosystem.config.js
+pm2 start ecosystem.config.cjs
 
 # Save PM2 configuration
 pm2 save
@@ -689,7 +689,7 @@ For issues or questions:
 
 ```bash
 # Start application
-pm2 start ecosystem.config.js
+pm2 start ecosystem.config.cjs
 
 # Stop application
 pm2 stop jastreb
