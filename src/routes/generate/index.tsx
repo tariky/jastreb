@@ -100,6 +100,7 @@ function GeneratePage() {
   const [deletingSessionId, setDeletingSessionId] = useState<number | null>(null)
   const [previewImage, setPreviewImage] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
+  const dragCounterRef = useRef(0)
 
   // Redirect if not authenticated
   useEffect(() => {
@@ -594,23 +595,36 @@ function GeneratePage() {
   const handleDragEnter = (e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    setIsDragging(true)
+    dragCounterRef.current++
+    // Only show drag state if we have files
+    if (e.dataTransfer.types.includes('Files') && dragCounterRef.current === 1) {
+      setIsDragging(true)
+    }
   }
 
   const handleDragLeave = (e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    setIsDragging(false)
+    dragCounterRef.current--
+    // Only hide drag state when we've completely left the drop zone
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0
+      setIsDragging(false)
+    }
   }
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
+    if (e.dataTransfer.types.includes('Files')) {
+      e.dataTransfer.dropEffect = 'copy'
+    }
   }
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
+    dragCounterRef.current = 0
     setIsDragging(false)
 
     const files = e.dataTransfer.files
@@ -1131,24 +1145,22 @@ function GeneratePage() {
 
         {/* Input Area - Always visible at bottom */}
         <div 
-          className={`shrink-0 p-4 border-t border-slate-800 bg-slate-900/50 backdrop-blur-sm transition-colors relative ${
-            isDragging ? 'bg-indigo-900/50 border-indigo-500/50' : ''
-          }`}
+          className="shrink-0 p-4 border-t border-slate-800 bg-slate-900/50 backdrop-blur-sm relative"
           onDragEnter={handleDragEnter}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
         >
           {isDragging && (
-            <div className="absolute inset-0 bg-indigo-500/10 border-2 border-dashed border-indigo-500 rounded-lg flex items-center justify-center z-50 pointer-events-none m-4">
-              <div className="text-center">
-                <Upload className="h-12 w-12 text-indigo-400 mx-auto mb-2" />
-                <p className="text-indigo-300 font-medium">Drop images here to add as references</p>
-                <p className="text-indigo-400 text-sm mt-1">Up to 14 reference images</p>
+            <div className="absolute inset-0 bg-indigo-500/20 border-2 border-dashed border-indigo-400 rounded-lg flex items-center justify-center z-50 pointer-events-none backdrop-blur-[2px]">
+              <div className="text-center bg-slate-900/95 px-8 py-6 rounded-xl border border-indigo-500/50 shadow-xl">
+                <Upload className="h-14 w-14 text-indigo-400 mx-auto mb-3" />
+                <p className="text-indigo-300 font-semibold text-lg">Drop images here</p>
+                <p className="text-indigo-400 text-sm mt-1">Add as reference images (up to 14)</p>
               </div>
             </div>
           )}
-          <form onSubmit={handleSubmit} className="max-w-4xl mx-auto relative z-10">
+          <form onSubmit={handleSubmit} className={`max-w-4xl mx-auto relative z-10 ${isDragging ? 'opacity-50' : ''}`}>
             {/* Settings Row */}
             <div className="flex items-center gap-3 mb-3">
               <div className="flex items-center gap-2">
