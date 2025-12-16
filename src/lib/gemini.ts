@@ -367,6 +367,17 @@ async function processGenerationJob(jobId: number) {
     const result = await generateImage(message, config, referenceImages, job.userId)
 
     if (result.error) {
+      // Save error message to chat
+      await db
+        .insert(aiChatMessages)
+        .values({
+          sessionId: job.sessionId!,
+          role: 'assistant',
+          content: `❌ **Generation Failed**\n\n${result.error}\n\nPlease check your API key settings or try again.`,
+          metadata: { jobId, error: true },
+          createdAt: new Date(),
+        })
+
       // Update job with error
       await db
         .update(generationJobs)
@@ -377,6 +388,13 @@ async function processGenerationJob(jobId: number) {
           progress: 100,
         })
         .where(eq(generationJobs.id, jobId))
+
+      // Update session timestamp
+      await db
+        .update(aiChatSessions)
+        .set({ updatedAt: new Date() })
+        .where(eq(aiChatSessions.id, job.sessionId!))
+
       return
     }
 
@@ -446,12 +464,40 @@ async function processGenerationJob(jobId: number) {
       })
       .where(eq(generationJobs.id, jobId))
   } catch (error: any) {
-    console.error(`Error processing generation job ${jobId}:`, error)
+    console.error(`Failed to process generation job ${jobId}:`, error)
+    
+    const errorMessage = error.message || 'Unknown error during processing'
+    
+    // Try to save error message to chat if we have session info
+    try {
+      const job = await getGenerationJob(jobId)
+      if (job?.sessionId) {
+        await db
+          .insert(aiChatMessages)
+          .values({
+            sessionId: job.sessionId,
+            role: 'assistant',
+            content: `❌ **Generation Failed**\n\n${errorMessage}\n\nPlease check your API key settings or try again.`,
+            metadata: { jobId, error: true },
+            createdAt: new Date(),
+          })
+
+        // Update session timestamp
+        await db
+          .update(aiChatSessions)
+          .set({ updatedAt: new Date() })
+          .where(eq(aiChatSessions.id, job.sessionId))
+      }
+    } catch (chatError) {
+      console.error('Failed to save error message to chat:', chatError)
+    }
+
+    // Update job with error
     await db
       .update(generationJobs)
       .set({
         status: 'failed',
-        errorMessage: error.message || 'Unknown error',
+        errorMessage,
         completedAt: new Date(),
         progress: 100,
       })

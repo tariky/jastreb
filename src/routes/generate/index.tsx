@@ -190,6 +190,8 @@ function GeneratePage() {
                   },
                 ])
               } else {
+                // Job failed - refetch messages to show error message in chat
+                await refetchMessages()
                 setDebugLogs((prev) => [
                   ...prev,
                   {
@@ -753,8 +755,8 @@ function GeneratePage() {
   return (
     <div className="h-[calc(100dvh-3.5rem)] bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 flex overflow-hidden">
       {/* Sidebar - Chat Sessions */}
-      <div className="w-72 border-r border-slate-800 bg-slate-900/50 backdrop-blur-sm flex flex-col h-full">
-        <div className="p-4 border-b border-slate-800">
+      <div className="w-72 border-r border-slate-800 bg-slate-900/50 backdrop-blur-sm flex flex-col h-full overflow-hidden">
+        <div className="shrink-0 p-4 border-b border-slate-800">
           <Button
             onClick={() => createSession.mutate()}
             disabled={createSession.isPending}
@@ -768,16 +770,17 @@ function GeneratePage() {
             New Generation
           </Button>
         </div>
-        <ScrollArea className="flex-1 p-2">
-          {sessions.map((session) => (
-            <div
-              key={session.id}
-              className={`w-full p-3 rounded-lg mb-1 transition-colors group ${
-                currentSessionId === session.id
-                  ? 'bg-indigo-600/20 border border-indigo-500/30'
-                  : 'hover:bg-slate-800/50'
-              }`}
-            >
+        <ScrollArea className="flex-1 min-h-0 p-2">
+              {sessions.map((session) => (
+                <div
+                  key={session.id}
+                  className={`w-full p-3 rounded-lg mb-1 transition-colors group cursor-pointer ${
+                    currentSessionId === session.id
+                      ? 'bg-indigo-600/20 border border-indigo-500/30'
+                      : 'hover:bg-slate-800/50'
+                  }`}
+                  onClick={() => setCurrentSessionId(session.id)}
+                >
               {editingSessionId === session.id ? (
                 <div className="flex items-center gap-2">
                   <Input
@@ -823,16 +826,13 @@ function GeneratePage() {
                   </Button>
                 </div>
               ) : (
-                <button
-                  onClick={() => setCurrentSessionId(session.id)}
-                  className="w-full text-left"
-                >
-                  <div className="flex items-center gap-2">
+                <>
+                  <div className="flex items-center gap-2 w-full min-w-0">
                     <MessageSquare className="h-4 w-4 text-slate-400 shrink-0" />
-                    <span className="text-sm text-slate-200 truncate flex-1">
+                    <span className="text-sm text-slate-200 truncate flex-1 min-w-0">
                       {session.title || 'Untitled'}
                     </span>
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 ml-1">
                       <Button
                         size="sm"
                         variant="ghost"
@@ -854,10 +854,10 @@ function GeneratePage() {
                       </Button>
                     </div>
                   </div>
-                  <span className="text-xs text-slate-500 mt-1 block">
+                  <span className="text-xs text-slate-500 mt-1 block truncate">
                     {new Date(session.updatedAt).toLocaleDateString()}
                   </span>
-                </button>
+                </>
               )}
             </div>
           ))}
@@ -1013,40 +1013,48 @@ function GeneratePage() {
             </div>
           ) : (
             <div className="space-y-6 max-w-4xl mx-auto pb-4">
-              {allMessages.map((msg) => (
-                <div
-                  key={msg.id}
-                  className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}
-                >
+              {allMessages.map((msg) => {
+                const isError = (msg.metadata as any)?.error === true
+                return (
                   <div
-                    className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
-                      msg.role === 'user'
-                        ? 'bg-indigo-600'
-                        : 'bg-gradient-to-br from-purple-500 to-pink-500'
-                    }`}
+                    key={msg.id}
+                    className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}
                   >
-                    {msg.role === 'user' ? (
-                      <span className="text-xs font-medium text-white">
-                        {user?.name?.[0] || user?.email?.[0] || 'U'}
-                      </span>
-                    ) : (
-                      <Sparkles className="h-4 w-4 text-white" />
-                    )}
-                  </div>
-                  <div
-                    className={`flex-1 max-w-[80%] ${msg.role === 'user' ? 'text-right' : ''}`}
-                  >
-                    {msg.content && (
-                      <div
-                        className={`inline-block p-3 rounded-2xl ${
-                          msg.role === 'user'
-                            ? 'bg-indigo-600 text-white rounded-tr-sm'
-                            : 'bg-slate-800 text-slate-200 rounded-tl-sm'
-                        }`}
-                      >
-                        {msg.content}
-                      </div>
-                    )}
+                    <div
+                      className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
+                        msg.role === 'user'
+                          ? 'bg-indigo-600'
+                          : isError
+                          ? 'bg-red-600'
+                          : 'bg-gradient-to-br from-purple-500 to-pink-500'
+                      }`}
+                    >
+                      {msg.role === 'user' ? (
+                        <span className="text-xs font-medium text-white">
+                          {user?.name?.[0] || user?.email?.[0] || 'U'}
+                        </span>
+                      ) : isError ? (
+                        <X className="h-4 w-4 text-white" />
+                      ) : (
+                        <Sparkles className="h-4 w-4 text-white" />
+                      )}
+                    </div>
+                    <div
+                      className={`flex-1 max-w-[80%] ${msg.role === 'user' ? 'text-right' : ''}`}
+                    >
+                      {msg.content && (
+                        <div
+                          className={`inline-block p-3 rounded-2xl ${
+                            msg.role === 'user'
+                              ? 'bg-indigo-600 text-white rounded-tr-sm'
+                              : isError
+                              ? 'bg-red-900/50 border border-red-500/50 text-red-200 rounded-tl-sm'
+                              : 'bg-slate-800 text-slate-200 rounded-tl-sm'
+                          }`}
+                        >
+                          <div className="whitespace-pre-wrap">{msg.content}</div>
+                        </div>
+                      )}
                     {(msg.imageUrl || msg.imageData) && (
                       <div className="mt-2 relative group inline-block">
                         <img
@@ -1085,12 +1093,13 @@ function GeneratePage() {
                         </div>
                       </div>
                     )}
-                    <div className="text-xs text-slate-500 mt-1">
+                    <div className={`text-xs mt-1 ${isError ? 'text-red-400' : 'text-slate-500'}`}>
                       {new Date(msg.createdAt).toLocaleTimeString()}
+                      {isError && ' • Error'}
                     </div>
                   </div>
                 </div>
-              ))}
+              )})}
 
               {/* Show AI generating indicator */}
               {isGenerating && (
