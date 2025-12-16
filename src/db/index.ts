@@ -8,10 +8,16 @@ config()
 
 const databasePath = process.env.DATABASE_URL || './sqlite.db'
 console.log(`[DB] Connecting to database: ${databasePath}`)
-console.log(`[DB] DATABASE_URL env var: ${process.env.DATABASE_URL || 'not set (using default)'}`)
 
 const sqlite = new Database(databasePath)
+
+// Enable foreign keys
+sqlite.pragma('foreign_keys = ON')
+
 export const db = drizzle(sqlite, { schema })
+
+// Export raw sqlite instance for direct queries if needed
+export { sqlite }
 
 // Initialize database schema if tables don't exist
 function initializeDatabase() {
@@ -23,45 +29,30 @@ function initializeDatabase() {
     `).get()
 
     if (!tableCheck) {
-      console.log(`[DB] Database tables not found. Initializing schema in: ${databasePath}`)
-      pushSchema()
+      console.log(`[DB] Database tables not found. Creating schema...`)
+      createAllTables()
+      console.log('[DB] Database schema created successfully.')
     } else {
-      // Check what tables exist
+      // Log existing tables for debugging
       const tables = sqlite.prepare(`
         SELECT name FROM sqlite_master 
-        WHERE type='table' 
+        WHERE type='table' AND name NOT LIKE 'sqlite_%'
         ORDER BY name
-      `).all()
-      console.log(`[DB] Database already initialized. Found ${tables.length} tables:`, tables.map((t: any) => t.name).join(', '))
-      
-      // Check column names in ai_chat_sessions to verify schema
-      try {
-        const columns = sqlite.prepare(`PRAGMA table_info(ai_chat_sessions)`).all()
-        console.log(`[DB] ai_chat_sessions columns:`, columns.map((c: any) => c.name).join(', '))
-      } catch (e) {
-        // Table might not exist yet
-      }
+      `).all() as { name: string }[]
+      console.log(`[DB] Found ${tables.length} tables: ${tables.map(t => t.name).join(', ')}`)
     }
   } catch (error) {
     console.error('[DB] Database initialization error:', error)
-    // Try to push schema as fallback
-    try {
-      pushSchema()
-    } catch (pushError) {
-      console.error('[DB] Schema push also failed:', pushError)
-      throw pushError
-    }
+    throw error
   }
 }
 
-// Push schema directly (creates tables from schema definitions)
-function pushSchema() {
-  const { sql } = db
+// Create all tables with correct snake_case column names
+function createAllTables() {
+  // ============================================================================
+  // Authentication Tables
+  // ============================================================================
   
-  // Enable foreign keys
-  sqlite.prepare('PRAGMA foreign_keys = ON').run()
-  
-  // Create users table
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -75,7 +66,6 @@ function pushSchema() {
     )
   `)
   
-  // Create sessions table
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS sessions (
       id TEXT PRIMARY KEY,
@@ -85,7 +75,10 @@ function pushSchema() {
     )
   `)
   
-  // Create woo_connections table
+  // ============================================================================
+  // WooCommerce Tables
+  // ============================================================================
+  
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS woo_connections (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -100,7 +93,6 @@ function pushSchema() {
     )
   `)
   
-  // Create products table
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS products (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -131,12 +123,10 @@ function pushSchema() {
     )
   `)
   
-  // Create indexes for products
   sqlite.exec(`CREATE INDEX IF NOT EXISTS products_user_idx ON products(user_id)`)
   sqlite.exec(`CREATE INDEX IF NOT EXISTS products_woo_idx ON products(woo_id, connection_id)`)
   sqlite.exec(`CREATE INDEX IF NOT EXISTS products_parent_idx ON products(parent_id)`)
   
-  // Create product_media table
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS product_media (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -157,83 +147,6 @@ function pushSchema() {
   
   sqlite.exec(`CREATE INDEX IF NOT EXISTS media_product_idx ON product_media(product_id)`)
   
-  // Create satori_templates table
-  sqlite.exec(`
-    CREATE TABLE IF NOT EXISTS satori_templates (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      description TEXT,
-      width INTEGER DEFAULT 1200,
-      height INTEGER DEFAULT 630,
-      template TEXT NOT NULL,
-      styles TEXT,
-      variables TEXT,
-      preview_url TEXT,
-      is_default INTEGER DEFAULT 0,
-      created_at INTEGER DEFAULT (unixepoch())
-    )
-  `)
-  
-  // Create product_template_assignments table
-  sqlite.exec(`
-    CREATE TABLE IF NOT EXISTS product_template_assignments (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-      template_id INTEGER NOT NULL REFERENCES satori_templates(id) ON DELETE CASCADE,
-      custom_variables TEXT,
-      created_at INTEGER DEFAULT (unixepoch())
-    )
-  `)
-  
-  sqlite.exec(`CREATE INDEX IF NOT EXISTS assignment_product_idx ON product_template_assignments(product_id)`)
-  
-  // Create template_rules table
-  sqlite.exec(`
-    CREATE TABLE IF NOT EXISTS template_rules (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      template_id INTEGER NOT NULL REFERENCES satori_templates(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      description TEXT,
-      priority INTEGER DEFAULT 0,
-      is_active INTEGER DEFAULT 1,
-      conditions TEXT,
-      created_at INTEGER DEFAULT (unixepoch()),
-      updated_at INTEGER DEFAULT (unixepoch())
-    )
-  `)
-  
-  // Create feeds table
-  sqlite.exec(`
-    CREATE TABLE IF NOT EXISTS feeds (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      description TEXT,
-      type TEXT DEFAULT 'facebook_commerce',
-      include_all_products INTEGER DEFAULT 0,
-      filters TEXT,
-      column_mapping TEXT,
-      last_generated_at INTEGER,
-      created_at INTEGER DEFAULT (unixepoch())
-    )
-  `)
-  
-  // Create feed_products table
-  sqlite.exec(`
-    CREATE TABLE IF NOT EXISTS feed_products (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      feed_id INTEGER NOT NULL REFERENCES feeds(id) ON DELETE CASCADE,
-      product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-      custom_data TEXT,
-      created_at INTEGER DEFAULT (unixepoch())
-    )
-  `)
-  
-  sqlite.exec(`CREATE INDEX IF NOT EXISTS feed_products_feed_idx ON feed_products(feed_id)`)
-  
-  // Create sync_jobs table
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS sync_jobs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -253,7 +166,10 @@ function pushSchema() {
     )
   `)
   
-  // Create ai_chat_sessions table
+  // ============================================================================
+  // AI Chat Tables
+  // ============================================================================
+  
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS ai_chat_sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -266,7 +182,6 @@ function pushSchema() {
     )
   `)
   
-  // Create ai_chat_messages table
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS ai_chat_messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -282,7 +197,6 @@ function pushSchema() {
   
   sqlite.exec(`CREATE INDEX IF NOT EXISTS messages_session_idx ON ai_chat_messages(session_id)`)
   
-  // Create generation_jobs table
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS generation_jobs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -302,11 +216,89 @@ function pushSchema() {
     )
   `)
   
-  sqlite.exec(`CREATE INDEX IF NOT EXISTS generation_job_session_idx ON generation_jobs(session_id)`)
-  sqlite.exec(`CREATE INDEX IF NOT EXISTS generation_job_message_idx ON generation_jobs(message_id)`)
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS jobs_user_idx ON generation_jobs(user_id)`)
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS jobs_session_idx ON generation_jobs(session_id)`)
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS jobs_status_idx ON generation_jobs(status)`)
   
-  console.log('Database schema initialized successfully.')
+  // ============================================================================
+  // Template Tables
+  // ============================================================================
+  
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS satori_templates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      description TEXT,
+      width INTEGER DEFAULT 1200,
+      height INTEGER DEFAULT 630,
+      template TEXT NOT NULL,
+      styles TEXT,
+      variables TEXT,
+      preview_url TEXT,
+      is_default INTEGER DEFAULT 0,
+      created_at INTEGER DEFAULT (unixepoch())
+    )
+  `)
+  
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS product_template_assignments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+      template_id INTEGER NOT NULL REFERENCES satori_templates(id) ON DELETE CASCADE,
+      custom_variables TEXT,
+      created_at INTEGER DEFAULT (unixepoch())
+    )
+  `)
+  
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS assignment_product_idx ON product_template_assignments(product_id)`)
+  
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS template_rules (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      template_id INTEGER NOT NULL REFERENCES satori_templates(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      description TEXT,
+      priority INTEGER DEFAULT 0,
+      is_active INTEGER DEFAULT 1,
+      conditions TEXT,
+      created_at INTEGER DEFAULT (unixepoch()),
+      updated_at INTEGER DEFAULT (unixepoch())
+    )
+  `)
+  
+  // ============================================================================
+  // Feed Tables
+  // ============================================================================
+  
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS feeds (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      description TEXT,
+      type TEXT DEFAULT 'facebook_commerce',
+      include_all_products INTEGER DEFAULT 0,
+      filters TEXT,
+      column_mapping TEXT,
+      last_generated_at INTEGER,
+      created_at INTEGER DEFAULT (unixepoch())
+    )
+  `)
+  
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS feed_products (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      feed_id INTEGER NOT NULL REFERENCES feeds(id) ON DELETE CASCADE,
+      product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+      custom_data TEXT,
+      created_at INTEGER DEFAULT (unixepoch())
+    )
+  `)
+  
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS feed_products_feed_idx ON feed_products(feed_id)`)
 }
 
-// Initialize on module load
+// Run initialization
 initializeDatabase()
