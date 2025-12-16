@@ -250,6 +250,7 @@ module.exports = {
       env: {
         NODE_ENV: "production",
         PORT: 3000,
+        DATABASE_URL: "./data/prod.db",
       },
       error_file: "./logs/err.log",
       out_file: "./logs/out.log",
