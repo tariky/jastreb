@@ -177,9 +177,39 @@ export async function generateImage(
       },
     })
 
-    // Extract text and image from response
-    const text = response.text
-    const imageData = response.data
+    // Extract text and image from response parts
+    let text: string | undefined
+    let imageData: string | undefined
+
+    // Properly iterate through response parts to avoid SDK warning
+    if (response.candidates && response.candidates.length > 0) {
+      const candidate = response.candidates[0]
+      if (candidate.content && candidate.content.parts) {
+        for (const part of candidate.content.parts) {
+          if ('text' in part && part.text) {
+            text = text ? text + part.text : part.text
+          }
+          if ('inlineData' in part && part.inlineData) {
+            // Extract base64 image data
+            imageData = part.inlineData.data
+          }
+        }
+      }
+    }
+
+    // Fallback to SDK helpers if parts iteration didn't work
+    if (!text && !imageData) {
+      try {
+        text = response.text
+      } catch (e) {
+        // Ignore - may not have text
+      }
+      try {
+        imageData = (response as any).data
+      } catch (e) {
+        // Ignore - may not have image
+      }
+    }
 
     return {
       text,
