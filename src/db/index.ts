@@ -6,7 +6,11 @@ import * as schema from './schema.ts'
 
 config()
 
-const sqlite = new Database(process.env.DATABASE_URL || './sqlite.db')
+const databasePath = process.env.DATABASE_URL || './sqlite.db'
+console.log(`[DB] Connecting to database: ${databasePath}`)
+console.log(`[DB] DATABASE_URL env var: ${process.env.DATABASE_URL || 'not set (using default)'}`)
+
+const sqlite = new Database(databasePath)
 export const db = drizzle(sqlite, { schema })
 
 // Initialize database schema if tables don't exist
@@ -19,16 +23,32 @@ function initializeDatabase() {
     `).get()
 
     if (!tableCheck) {
-      console.log('Database tables not found. Initializing schema...')
+      console.log(`[DB] Database tables not found. Initializing schema in: ${databasePath}`)
       pushSchema()
+    } else {
+      // Check what tables exist
+      const tables = sqlite.prepare(`
+        SELECT name FROM sqlite_master 
+        WHERE type='table' 
+        ORDER BY name
+      `).all()
+      console.log(`[DB] Database already initialized. Found ${tables.length} tables:`, tables.map((t: any) => t.name).join(', '))
+      
+      // Check column names in ai_chat_sessions to verify schema
+      try {
+        const columns = sqlite.prepare(`PRAGMA table_info(ai_chat_sessions)`).all()
+        console.log(`[DB] ai_chat_sessions columns:`, columns.map((c: any) => c.name).join(', '))
+      } catch (e) {
+        // Table might not exist yet
+      }
     }
   } catch (error) {
-    console.error('Database initialization error:', error)
+    console.error('[DB] Database initialization error:', error)
     // Try to push schema as fallback
     try {
       pushSchema()
     } catch (pushError) {
-      console.error('Schema push also failed:', pushError)
+      console.error('[DB] Schema push also failed:', pushError)
       throw pushError
     }
   }
